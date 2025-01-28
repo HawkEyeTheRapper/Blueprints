@@ -1,0 +1,128 @@
+version: '3.7'
+
+services:
+
+  ###################################################################
+  # TRAEFIK - Reverse Proxy
+  ###################################################################
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.myresolver.acme.httpchallenge=true
+      - --certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.myresolver.acme.email=admin@omniversal.cloud
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /mnt/aether/docker/traefik/letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  ###################################################################
+  # MARIADB - Shared Database
+  ###################################################################
+  mariadb:
+    image: mariadb:10.7
+    container_name: mariadb
+    command: "--transaction-isolation=READ-COMMITTED --binlog-format=ROW"
+    environment:
+      - MYSQL_ROOT_PASSWORD=my_root_password123
+      - MYSQL_DATABASE=main_db
+      - MYSQL_USER=admin
+      - MYSQL_PASSWORD=my_strong_password987
+    volumes:
+      - /mnt/aether/docker/mariadb:/var/lib/mysql
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  ###################################################################
+  # NEXTCLOUD
+  ###################################################################
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    depends_on:
+      - mariadb
+    environment:
+      - MYSQL_HOST=mariadb
+      - MYSQL_DATABASE=main_db
+      - MYSQL_USER=admin
+      - MYSQL_PASSWORD=my_strong_password987
+    volumes:
+      - /mnt/aether/docker/nextcloud:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.omniversal.cloud`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.routers.nextcloud.tls.certresolver=myresolver"
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  ###################################################################
+  # WORDPRESS
+  ###################################################################
+  wordpress:
+    image: wordpress:latest
+    container_name: wordpress
+    depends_on:
+      - mariadb
+    environment:
+      - WORDPRESS_DB_HOST=mariadb
+      - WORDPRESS_DB_NAME=main_db
+      - WORDPRESS_DB_USER=admin
+      - WORDPRESS_DB_PASSWORD=my_strong_password987
+    volumes:
+      - /mnt/aether/docker/wordpress:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`wp.omniversal.cloud`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls=true"
+      - "traefik.http.routers.wordpress.tls.certresolver=myresolver"
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  ###################################################################
+  # GHOST
+  ###################################################################
+  ghost:
+    image: ghost:latest
+    container_name: ghost
+    depends_on:
+      - mariadb
+    environment:
+      - url=https://ghost.omniversal.cloud
+      - database__client=mysql
+      - database__connection__host=mariadb
+      - database__connection__user=admin
+      - database__connection__password=my_strong_password987
+      - database__connection__database=main_db
+    volumes:
+      - /mnt/aether/docker/ghost:/var/lib/ghost/content
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ghost.rule=Host(`ghost.omniversal.cloud`)"
+      - "traefik.http.routers.ghost.entrypoints=websecure"
+      - "traefik.http.routers.ghost.tls=true"
+      - "traefik.http.routers.ghost.tls.certresolver=myresolver"
+    networks:
+      - proxy
+    restart: unless-stopped
+
+networks:
+  proxy:
+    external: false
